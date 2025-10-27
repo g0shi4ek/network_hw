@@ -43,7 +43,7 @@ func encodeHamming(data uint64) uint64 {
 }
 
 // Декодирование Хэмминга с исправлением ошибок
-func decodeHamming(encoded uint64) uint64 {
+func decodeHamming(encoded uint64) (uint64, uint64) {
 	bits := IntToBits(encoded, 7)
 
 	// Вычисляем синдром
@@ -64,7 +64,7 @@ func decodeHamming(encoded uint64) uint64 {
 	// Извлекаем информационные биты (позиции 3,5,6,7 - индексы 2,4,5,6)
 	infoBits := []byte{bits[2], bits[4], bits[5], bits[6]}
 
-	return BitsToInt(infoBits)
+	return BitsToInt(infoBits), syndrome
 }
 
 // Генерация всех векторов ошибок
@@ -93,11 +93,12 @@ func main() {
 	// Пример с ошибкой
 	errorVector := uint64(0b0000100) // Ошибка в 5-й позиции
 	received := encoded ^ errorVector
-	decoded := decodeHamming(received)
+	decoded, syndrome := decodeHamming(received)
 
 	fmt.Printf("\nПример исправления ошибки:\n")
 	fmt.Printf("  Вектор ошибки:          %07b\n", errorVector)
 	fmt.Printf("  Принятое слово:         %07b\n", received)
+	fmt.Printf("  Синдром:                %03b (позиция %d)\n", syndrome, syndrome)
 	fmt.Printf("  Декодированное слово:   %04b", decoded)
 	if decoded == informationVector {
 		fmt.Printf(" ✓ Ошибка исправлена\n")
@@ -107,8 +108,8 @@ func main() {
 
 	// Расчет корректирующей способности
 	fmt.Printf("\nКорректирующая способность:\n")
-	fmt.Printf("i  C(n,i)  Nk   Ck\n")
-	fmt.Printf("───────────────────\n")
+	fmt.Printf("i  C(n,i)  Обнаружено  Исправлено  Ck\n")
+	fmt.Printf("───────────────────────────────────────\n")
 
 	errorClasses := getErrorsByClasses()
 
@@ -117,10 +118,18 @@ func main() {
 			continue
 		}
 
+		detected := 0
 		corrected := 0
 		for _, errorVector := range errorClasses[class] {
 			received := encoded ^ errorVector
-			decoded := decodeHamming(received)
+			decoded, syndrome := decodeHamming(received)
+			
+			// Ошибка обнаружена, если синдром не нулевой
+			if syndrome != 0 {
+				detected++
+			}
+			
+			// Ошибка исправлена, если декодированное слово совпадает с исходным
 			if decoded == informationVector {
 				corrected++
 			}
@@ -129,7 +138,7 @@ func main() {
 		total := len(errorClasses[class])
 		Ck := float64(corrected) / float64(total)
 
-		fmt.Printf("%d  %6d  %3d  %.3f", class, total, corrected, Ck)
+		fmt.Printf("%d  %6d  %10d  %10d  %.3f", class, total, detected, corrected, Ck)
 
 		if Ck == 1.0 {
 			fmt.Printf(" ✓\n")
@@ -139,4 +148,33 @@ func main() {
 			fmt.Printf(" ~\n")
 		}
 	}
+	
+	// Дополнительная статистика
+	fmt.Printf("\nСтатистика:\n")
+	fmt.Printf("Всего возможных векторов ошибок: %d\n", (1<<n)-1)
+	
+	totalDetected := 0
+	totalCorrected := 0
+	totalErrors := 0
+	
+	for class := 1; class <= n; class++ {
+		if len(errorClasses[class]) == 0 {
+			continue
+		}
+		for _, errorVector := range errorClasses[class] {
+			received := encoded ^ errorVector
+			decoded, syndrome := decodeHamming(received)
+			
+			if syndrome != 0 {
+				totalDetected++
+			}
+			if decoded == informationVector {
+				totalCorrected++
+			}
+			totalErrors++
+		}
+	}
+	
+	fmt.Printf("Обнаружено ошибок: %d (%.1f%%)\n", totalDetected, float64(totalDetected)/float64(totalErrors)*100)
+	fmt.Printf("Исправлено ошибок: %d (%.1f%%)\n", totalCorrected, float64(totalCorrected)/float64(totalErrors)*100)
 }
